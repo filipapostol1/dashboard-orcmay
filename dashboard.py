@@ -2,77 +2,67 @@ import streamlit as st
 import pandas as pd
 from orchestrator import BusinessDataOrchestrator
 
-# Configurazione della dashboard
-st.set_page_config(page_title="CEO Dashboard", page_icon="💼")
-st.title("💼 CEO Business Orchestrator - PRO")
+st.set_page_config(page_title="Orcmay Store Dashboard", layout="wide")
+st.title("📊 Orcmay Store - Business Dashboard")
 
-# Inizializza il motore
-motore = BusinessDataOrchestrator(company_name="Orchestra Holding")
+# 1. Inizializzazione sicura dell'Orchestratore
+@st.cache_resource
+def get_orchestrator():
+    try:
+        return BusinessDataOrchestrator()
+    except Exception as e:
+        st.sidebar.error(f"Errore inizializzazione: {e}")
+        return None
 
-# Recupero dati sicuro dall'orchestratore
-try:
-    dati_finanza = motore.fetch_financial_data()
-    dati_mktg = motore.fetch_marketing_data()
-    dati_trend = motore.fetch_market_trends()
-    report = motore.elabora_metriche_avanzate(dati_finanza, dati_mktg, dati_trend)
-except Exception as e:
-    st.error(f"Impossibile comunicare con l'orchestratore: {e}")
-    report = {}
+orchestrator = get_orchestrator()
 
-# --- L'ADATTATORE INTELLIGENTE (Mappato sullo screenshot) ---
-def estrai(dizionario, *chiavi):
-    valore = dizionario
-    for chiave in chiavi:
-        if isinstance(valore, dict) and chiave in valore:
-            valore = valore[chiave]
-        else:
-            return "N/D"
-    return valore
-
-# Estrazione chirurgica basata sul tuo JSON reale
-entrate_lorde = estrai(report, 'quadro_finanziario', 'entrate_lorde_euro')
-utile_netto = estrai(report, 'quadro_finanziario', 'utile_netto_stimato_euro')
-abbonati_attivi = estrai(report, 'quadro_finanziario', 'metriche_abbonati', 'totale_attivi')
-
-# Marketing e Trend (che andavano già alla grande)
-roi = estrai(report, 'performance_marketing_reale', 'efficienza_pubblicitaria_roi')
-cac = estrai(report, 'performance_marketing_reale', 'costo_acquisizione_cliente_cac_euro')
-trend = estrai(report, 'analisi_contesto_esterno', 'trend_mercato')
-
-# Stato di salute dal quadro generale
-stato = estrai(report, 'quadro_generale_CEO', 'stato_salute_azienda')
-
-# --- INTERFACCIA GRAFICA ---
-
-# Sezione 1: KPI Finanziari Reali
-st.subheader("📊 Quadro Finanziario")
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Entrate Lorde", f"€ {entrate_lorde}" if entrate_lorde != "N/D" else "N/D")
-with col2:
-    st.metric("Utile Netto Stimato", f"€ {utile_netto}" if utile_netto != "N/D" else "N/D")
-with col3:
-    st.metric("Abbonati Attivi", abbonati_attivi)
-
-# Sezione 2: KPI Marketing
-st.subheader("📈 Performance Marketing")
-col4, col5 = st.columns(2)
-with col4:
-    st.metric("ROI Pubblicitario", roi)
-with col5:
-    st.metric("CAC (Costo Acquisizione)", f"€ {cac}" if cac != "N/D" else "N/D")
-
-# Sezione 3: Grafico Aziendale
-st.subheader("📉 Analisi dei Trend")
-chart_data = pd.DataFrame({'Valore': [100, 120, 150, 130]})
-st.line_chart(chart_data)
-
-# Barra di stato finale dinamica
-if stato == "Eccellente":
-    st.success(f"Stato Salute Azienda: {stato} | Mercato: {trend}")
+# 2. Caricamento dati protetto (Se fallisce, restituisce None invece di crashare)
+if orchestrator:
+    with st.spinner("Caricamento dati da Shopify in corso..."):
+        try:
+            # Proviamo a scaricare i dati finanziari
+            financial_data = orchestrator.fetch_financial_data()
+        except Exception as e:
+            st.sidebar.warning(f"Impossibile recuperare i dati live: {e}")
+            financial_data = None
 else:
-    st.info(f"Stato Salute Azienda: {stato} | Mercato: {trend}")
+    financial_data = None
 
-# --- ISPEZIONE DEL DIZIONARIO ---
-with st.expander("🔍 Struttura Dati Rilevata (Nessun Errore, Solo Controllo)"):
-    st.json(report)
+# 3. Funzione helper per mostrare i dati o N/D in caso di errore
+def get_metric_value(data_source, key, default="N/D"):
+    if data_source and isinstance(data_source, dict) and key in data_source:
+        return data_source[key]
+    return default
+
+# --- LAYOUT DELLA DASHBOARD ---
+
+# Esempio di metriche principali che non crasheranno mai
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    # Se financial_data è corrotto o vuoto, mostrerà "N/D" senza rompere la pagina
+    tot_vendite = get_metric_value(financial_data, "total_sales")
+    st.metric(label="Vendite Totali", value=f"{tot_vendite} €" if tot_vendite != "N/D" else tot_vendite)
+
+with col2:
+    ordini = get_metric_value(financial_data, "total_orders")
+    st.metric(label="Ordini Totali", value=ordini)
+
+with col3:
+    aov = get_metric_value(financial_data, "average_order_value")
+    st.metric(label="AOV (Ordine Medio)", value=f"{aov} €" if aov != "N/D" else aov)
+
+with col4:
+    status = "Attivo 🟢" if financial_data else "Errore Connessione 🔴"
+    st.metric(label="Stato Connessione", value=status)
+
+# Spazio per i grafici (protetti anch'essi)
+st.subheader("📈 Andamento del Negozio")
+try:
+    if financial_data and "historical_data" in financial_data:
+        df = pd.DataFrame(financial_data["historical_data"])
+        st.line_chart(df)
+    else:
+        st.info("I dati storici per il grafico non sono al momento disponibili (N/D).")
+except Exception as e:
+    st.error(f"Errore nel rendering del grafico: {e}")
