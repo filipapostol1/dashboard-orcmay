@@ -5,6 +5,7 @@ from orchestrator import BusinessDataOrchestrator
 # Configurazione della dashboard
 st.set_page_config(page_title="CEO Dashboard", page_icon="💼")
 st.title("💼 CEO Business Orchestrator - PRO")
+st.write("Dati estratti dal motore:", report)
 
 # Recupero dati sicuro dall'orchestratore
 try:
