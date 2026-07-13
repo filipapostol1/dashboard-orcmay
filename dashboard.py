@@ -6,23 +6,30 @@ import os
 st.set_page_config(page_title="E-com Intelligence Dashboard", layout="wide")
 
 def carica_pacchetto_dashboard():
-    nome_file = "dati_dashboard.json"
+    # Cerca il file nella stessa cartella dove sta girando l'app
+    nome_file = os.path.join(os.getcwd(), "dati_dashboard.json")
+    
     if not os.path.exists(nome_file):
-        return {
-            "PIANO BASE": {"kpi": {}, "storico_vendite": [], "storico_competitor": []},
-            "PIANO PRO": {"kpi": {}, "storico_vendite": [], "storico_competitor": []}
-        }
-    with open(nome_file, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-dati_sito = carica_pacchetto_dashboard()
+        # Fallback anti-crash se l'orchestratore non ha ancora creato il file
+        return None
+        
+    try:
+        with open(nome_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 # --- SIDEBAR ---
 st.sidebar.title("🚀 E-com Intel")
 status = st.sidebar.selectbox("Livello Account", ["PIANO BASE", "PIANO PRO"])
 menu = st.sidebar.radio("Navigazione", ["📈 Panoramica Store", "🕵️ Spia Competitor"])
 
-# Estraiamo direttamente il pacchetto dati già pre-tagliato dall'orchestratore per quel piano
+dati_sito = carica_pacchetto_dashboard()
+
+if not dati_sito:
+    st.error("⚠️ Errore di sistema: Dati non trovati. Avvia prima l'Orchestratore per generare i file JSON.")
+    st.stop()
+
 dati_piano = dati_sito.get(status, {})
 kpi = dati_piano.get("kpi", {})
 
@@ -55,11 +62,11 @@ elif menu == "🕵️ Spia Competitor":
         df_c = pd.DataFrame(storico_c).set_index("data")
         
         if status == "PIANO BASE":
-            st.warning("🔒 Versione limitata: Storico ridotto a 48 ore e competitor parziali.")
-            st.dataframe(df_c)
+            st.warning("🔒 Versione limitata: Storico ridotto a 48 ore e 1 solo competitor visibile.")
+            st.dataframe(df_c, use_container_width=True)
         else:
             st.success("🔓 Modalità PRO: Storico temporale completo e tracciamento globale attivo.")
             st.line_chart(df_c)
-            st.dataframe(df_c)
+            st.dataframe(df_c, use_container_width=True)
     else:
         st.info("Nessun dato competitor elaborato per questo profilo.")
