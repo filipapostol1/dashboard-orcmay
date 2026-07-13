@@ -59,21 +59,42 @@ if menu == "📈 Panoramica Store":
         st.info("Nessun dato storico disponibile al momento.")
 
 # --- SEZIONE 2: SPIA COMPETITOR ---
+# --- SEZIONE 2: SPIA COMPETITOR ---
 elif menu == "🕵️ Spia Competitor":
     st.title("🕵️ Intelligence Competitor")
     
     storico_comp = dati.get("dati_per_grafici", {}).get("storico_competitor", [])
     
     if storico_comp:
+        # Trasformiamo i dati in una tabella pandas
         df_comp = pd.DataFrame(storico_comp).set_index("data")
         
+        # Supponiamo che l'orchestratore abbia estratto: Tuo Prezzo, Comp_A, Comp_B, Comp_C, Comp_D
+        # (Nel JSON di test di prima avevamo solo A e B, ma espandiamo la logica)
+        
         if status == "PIANO BASE":
-            st.error("🔒 Questa sezione è limitata nel Piano Base. Puoi tracciare solo 3 competitor.")
-            # Nel piano base mostriamo solo la tabella semplice
-            st.dataframe(df_comp)
+            st.error("🔒 Piano BASE attivo: puoi vedere solo i primi 2 Competitor.")
+            
+            # ✂️ TAGLIO DEI DATI: Selezioniamo solo le colonne del Tuo Prezzo e dei primi 2 competitor
+            colonne_base = [col for col in df_comp.columns if col in ["tuo_prezzo", "competitor_a", "competitor_b"]]
+            df_filtrato = df_comp[colonne_base]
+            
+            # Mostriamo solo la tabella limitata
+            st.dataframe(df_filtrato, use_container_width=True)
+            
+            # ⚡ IL RECENTE GANCIO COMMERCIALE: Gli facciamo vedere cosa si sta perdendo
+            st.markdown("---")
+            st.warning("⚠️ **Competitor C** e **Competitor D** stanno modificando i loro prezzi in questo momento! Passa al **Piano PRO** per sbloccare il tracciamento completo e i grafici storici.")
+            
         else:
-            st.success("🔓 Accesso PRO: Grafici Interattivi e Algoritmo Predittivo Attivo")
-            # Nel piano pro sblocchiamo il grafico a linee con il confronto dei prezzi
+            # PIANO PRO: Sblocca tutto!
+            st.success("🔓 Accesso PRO: Tracciamento Completo di tutti i Competitor sbloccato")
+            
+            # Mostra il grafico a linee con TUTTE le linee di tutti i competitor sovrapposte
             st.line_chart(df_comp)
+            
+            # Mostra anche la tabella completa sotto per controllo dettagliato
+            st.subheader("📋 Tabella Dati Completa")
+            st.dataframe(df_comp, use_container_width=True)
     else:
         st.info("Nessun dato sui competitor disponibile.")
