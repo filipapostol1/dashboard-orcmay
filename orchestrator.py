@@ -1,4 +1,3 @@
-import streamlit as st
 import json
 import os
 import requests
@@ -7,11 +6,14 @@ from datetime import datetime
 class BusinessDataOrchestrator:
     def __init__(self, company_name="Orchestra Holding"):
         self.company_name = company_name
-        self.bot_report_path = "report_orchestra_holding.json" # <-- Solo per il Bot Telegram
-        self.dashboard_data_path = "dati_dashboard.json"       # <-- Solo per la Dashboard Streamlit
+        self.bot_report_path = "report_orchestra_holding.json"
+        self.dashboard_data_path = "dati_dashboard.json"
         
+        # --- CONFIGURAZIONE REALE E SICURA SHOPIFY ---
         self.shop_name = "orcmay"
-        self.api_token = st.secrets["SHOPIFY_TOKEN"]
+        
+        # Prende il token dalle variabili d'ambiente di PythonAnywhere (100% protetto)
+        self.api_token = os.environ.get("SHOPIFY_TOKEN")
 
     def fetch_financial_data(self):
         url = f"https://{self.shop_name}.myshopify.com/admin/api/2024-01/orders.json?status=any&financial_status=any&fulfillment_status=any"
