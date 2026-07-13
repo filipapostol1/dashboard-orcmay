@@ -3,31 +3,56 @@ import pandas as pd
 import json
 import os
 
+# Importiamo l'orchestratore in modo pulito: la logica rimane di là, noi la "chiamiamo" solo.
+try:
+    from orchestrator import BusinessDataOrchestrator
+except ImportError:
+    st.error("⚠️ File orchestrator.py non trovato. Assicurati che sia nella stessa cartella.")
+    st.stop()
+
 st.set_page_config(page_title="E-com Intelligence Dashboard", layout="wide")
 
+nome_file = os.path.join(os.getcwd(), "dati_dashboard.json")
+
+# --- MOTORE DI AGGIORNAMENTO IN BACKGROUND ---
+def aggiorna_tutto():
+    motore = BusinessDataOrchestrator()
+    dati_f = motore.fetch_financial_data()
+    dati_m = motore.fetch_marketing_data()
+    dati_t = motore.fetch_market_trends()
+    motore.genera_output_sistemi(dati_f, dati_m, dati_t)
+
+# Se il file non esiste, lo crea in automatico senza chiedertelo
+if not os.path.exists(nome_file):
+    with st.spinner("Prima configurazione in corso... Connessione a Shopify..."):
+        aggiorna_tutto()
+
+# --- FUNZIONE DI LETTURA ---
 def carica_pacchetto_dashboard():
-    # Cerca il file nella stessa cartella dove sta girando l'app
-    nome_file = os.path.join(os.getcwd(), "dati_dashboard.json")
-    
-    if not os.path.exists(nome_file):
-        # Fallback anti-crash se l'orchestratore non ha ancora creato il file
-        return None
-        
     try:
         with open(nome_file, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return None
 
-# --- SIDEBAR ---
+# --- SIDEBAR E COMANDI ---
 st.sidebar.title("🚀 E-com Intel")
 status = st.sidebar.selectbox("Livello Account", ["PIANO BASE", "PIANO PRO"])
+
+# IL PULSANTE MAGICO: Tu clicchi, lui aggiorna tutto in background
+if st.sidebar.button("🔄 Sincronizza Dati Ora"):
+    with st.spinner("Scaricamento nuovi ordini e prezzi..."):
+        aggiorna_tutto()
+    st.sidebar.success("Dati aggiornati!")
+    st.rerun()  # Ricarica la pagina coi dati freschi
+
+st.sidebar.markdown("---")
 menu = st.sidebar.radio("Navigazione", ["📈 Panoramica Store", "🕵️ Spia Competitor"])
 
 dati_sito = carica_pacchetto_dashboard()
 
 if not dati_sito:
-    st.error("⚠️ Errore di sistema: Dati non trovati. Avvia prima l'Orchestratore per generare i file JSON.")
+    st.error("⚠️ Impossibile leggere i dati. Riprova la sincronizzazione.")
     st.stop()
 
 dati_piano = dati_sito.get(status, {})
