@@ -3,7 +3,6 @@ import pandas as pd
 import json
 import os
 
-# Importiamo l'orchestratore in modo pulito: la logica rimane di là, noi la "chiamiamo" solo.
 try:
     from orchestrator import BusinessDataOrchestrator
 except ImportError:
@@ -14,7 +13,6 @@ st.set_page_config(page_title="E-com Intelligence Dashboard", layout="wide")
 
 nome_file = os.path.join(os.getcwd(), "dati_dashboard.json")
 
-# --- MOTORE DI AGGIORNAMENTO IN BACKGROUND ---
 def aggiorna_tutto():
     motore = BusinessDataOrchestrator()
     dati_f = motore.fetch_financial_data()
@@ -22,12 +20,10 @@ def aggiorna_tutto():
     dati_t = motore.fetch_market_trends()
     motore.genera_output_sistemi(dati_f, dati_m, dati_t)
 
-# Se il file non esiste, lo crea in automatico senza chiedertelo
 if not os.path.exists(nome_file):
-    with st.spinner("Prima configurazione in corso... Connessione a Shopify..."):
+    with st.spinner("Creazione database iniziale..."):
         aggiorna_tutto()
 
-# --- FUNZIONE DI LETTURA ---
 def carica_pacchetto_dashboard():
     try:
         with open(nome_file, "r", encoding="utf-8") as f:
@@ -39,12 +35,12 @@ def carica_pacchetto_dashboard():
 st.sidebar.title("🚀 E-com Intel")
 status = st.sidebar.selectbox("Livello Account", ["PIANO BASE", "PIANO PRO"])
 
-# IL PULSANTE MAGICO: Tu clicchi, lui aggiorna tutto in background
+# QUESTO È IL BOTTONE MAGICO DA CLICCARE
 if st.sidebar.button("🔄 Sincronizza Dati Ora"):
-    with st.spinner("Scaricamento nuovi ordini e prezzi..."):
+    with st.spinner("Scaricamento nuovi ordini e aggiornamento prezzi..."):
         aggiorna_tutto()
     st.sidebar.success("Dati aggiornati!")
-    st.rerun()  # Ricarica la pagina coi dati freschi
+    st.rerun()
 
 st.sidebar.markdown("---")
 menu = st.sidebar.radio("Navigazione", ["📈 Panoramica Store", "🕵️ Spia Competitor"])
@@ -52,7 +48,7 @@ menu = st.sidebar.radio("Navigazione", ["📈 Panoramica Store", "🕵️ Spia C
 dati_sito = carica_pacchetto_dashboard()
 
 if not dati_sito:
-    st.error("⚠️ Impossibile leggere i dati. Riprova la sincronizzazione.")
+    st.error("⚠️ Impossibile leggere i dati. Clicca su 'Sincronizza Dati Ora'.")
     st.stop()
 
 dati_piano = dati_sito.get(status, {})
@@ -74,9 +70,19 @@ if menu == "📈 Panoramica Store":
     storico_v = dati_piano.get("storico_vendite", [])
     if storico_v:
         df_v = pd.DataFrame(storico_v).set_index("data")
-        st.line_chart(df_v["fatturato"])
+        # Rinomino le colonne per renderle professionali
+        df_v = df_v.rename(columns={"fatturato": "Fatturato (€)", "ordini": "N° Ordini"})
+        
+        if status == "PIANO BASE":
+            st.warning("🔒 Piano BASE: Nessun grafico di andamento. Hai accesso solo ai crudi numeri delle ultime 48 ore.")
+            # Nel base mostra SOLO LA TABELLA (Niente grafici)
+            st.dataframe(df_v, use_container_width=True)
+        else:
+            st.success("🔓 Piano PRO: Grafico andamento sbloccato.")
+            # Nel PRO mostra IL GRAFICO e poi i dati
+            st.line_chart(df_v["Fatturato (€)"])
     else:
-        st.info("Nessun dato storico elaborato per questo profilo.")
+        st.info("Nessun dato storico elaborato.")
 
 # --- SEZIONE 2: SPIA COMPETITOR ---
 elif menu == "🕵️ Spia Competitor":
@@ -86,12 +92,23 @@ elif menu == "🕵️ Spia Competitor":
     if storico_c:
         df_c = pd.DataFrame(storico_c).set_index("data")
         
+        # Sostituiamo "competitor_a" con nomi veri per fare un test visivo che spacca
+        df_c = df_c.rename(columns={
+            "tuo_prezzo": "Il Tuo Prezzo (€)", 
+            "competitor_a": "Amazon (€)", 
+            "competitor_b": "Ebay (€)", 
+            "competitor_c": "Zalando (€)"
+        })
+        
         if status == "PIANO BASE":
-            st.warning("🔒 Versione limitata: Storico ridotto a 48 ore e 1 solo competitor visibile.")
+            st.warning("🔒 Piano BASE: Puoi tracciare un solo concorrente (Amazon) e senza grafici di tendenza storici.")
+            # Nel base mostra SOLO LA TABELLA striminzita
             st.dataframe(df_c, use_container_width=True)
+            st.markdown("👉 *Passa al **Piano PRO** per sbloccare tutti gli altri store e i grafici predittivi sui prezzi.*")
         else:
-            st.success("🔓 Modalità PRO: Storico temporale completo e tracciamento globale attivo.")
+            st.success("🔓 Piano PRO: Tracciamento globale attivo. Tutti i competitor monitorati in tempo reale.")
+            # Nel PRO mostra il GRAFFICO INTERATTIVO con tutte le linee incrociate
             st.line_chart(df_c)
             st.dataframe(df_c, use_container_width=True)
     else:
-        st.info("Nessun dato competitor elaborato per questo profilo.")
+        st.info("Nessun dato competitor elaborato. Prova a cliccare su 'Sincronizza Dati Ora'.")
