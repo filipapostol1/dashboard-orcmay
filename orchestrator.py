@@ -1,164 +1,247 @@
 import json
+import logging
 import os
+import time
 import requests
+from typing import Dict, List, Any, Optional
 
-# --- FUNZIONE ANTIPROIETTILE PER LEGGERE IL TOKEN ---
-# Risolve il problema di Streamlit che crasha se lanciato come script normale
-def recupera_token_sicuro():
+# ---------------------------------------------------------------------------
+# Configurazione Logging
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("ShopifyOrchestrator")
+
+# ---------------------------------------------------------------------------
+# Configurazione Ambiente (Dinamica)
+# ---------------------------------------------------------------------------
+MODALITA_TEST: bool = os.getenv("MODALITA_TEST", "True").lower() in ("true", "1", "t", "yes")
+
+def _recupera_token_sicuro() -> str:
+    """Recupera il token da Env, Streamlit Secrets o file .streamlit/secrets.toml"""
+    env_token = os.getenv("SHOPIFY_TOKEN")
+    if env_token:
+        return env_token
+
     try:
         import streamlit as st
-        return st.secrets["SHOPIFY_TOKEN"]
-    except Exception:
-        # Se st.secrets fallisce, va a leggersi fisicamente il file secrets.toml
-        percorso = os.path.join(os.getcwd(), ".streamlit", "secrets.toml")
-        if os.path.exists(percorso):
-            with open(percorso, "r") as f:
-                for riga in f:
-                    if "SHOPIFY_TOKEN" in riga:
-                        # Pulisce la stringa e prende solo il codice
-                        return riga.split("=")[1].strip().strip('"').strip("'")
-        return "NESSUN_TOKEN_TROVATO"
+        if "SHOPIFY_TOKEN" in st.secrets:
+            return st.secrets["SHOPIFY_TOKEN"]
+    except ImportError:
+        pass  # Streamlit non installato nell'ambiente corrente
 
-class BusinessDataOrchestrator:
-    def __init__(self):
-        # Usa percorsi assoluti per garantire che salvi i file nella cartella giusta
-        self.dir_path = os.getcwd()
-        self.bot_report_path = os.path.join(self.dir_path, "report_orchestra_holding.json")
-        self.dashboard_data_path = os.path.join(self.dir_path, "dati_dashboard.json")
-        
-        self.shop_name = "orcmay"
-        self.api_token = recupera_token_sicuro()
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    percorso_toml = os.path.join(base_dir, ".streamlit", "secrets.toml")
 
-    def fetch_financial_data(self):
-        url = f"https://{self.shop_name}.myshopify.com/admin/api/2024-01/orders.json?status=any&financial_status=any&fulfillment_status=any"
-        headers = {"X-Shopify-Access-Token": self.api_token, "Content-Type": "application/json"}
-        
-        # Dati di emergenza se Shopify non risponde
-        storico_emergenza = [
-            {"data": "2026-07-12", "fatturato": 300.0, "ordini": 3},
-            {"data": "2026-07-13", "fatturato": 510.0, "ordini": 6}
-        ]
-        
+    if os.path.exists(percorso_toml):
         try:
-            print("⏳ Connessione a Shopify in corso...")
-            response = requests.get(url, headers=headers)
-            
-            if response.status_code == 200:
-                ordini = response.json().get('orders', [])
-                if not ordini:
-                    print("⚠️ Zero ordini trovati su Shopify. Uso i dati simulati per non avere 0.")
-                    return {"mrr": 1550.00, "attivi": 12, "storico": storico_emergenza}
-                
-                # Calcoli reali su Shopify
-                mrr_reale = sum(float(ordine.get('total_price', 0)) for ordine in ordini)
-                attivi_reali = len(ordini)
-                
-                # Estrazione storico per grafici messa in sicurezza (Anti-Crash)
-                ordini_per_data = {}
-                for ordine in ordini:
-                    data_creazione = ordine.get('created_at')
-                    if data_creazione:  # Controlla che la data esista davvero
-                        data_str = str(data_creazione)[:10]  # Taglia YYYY-MM-DD
-                        prezzo = float(ordine.get('total_price', 0))
-                        
-                        if data_str not in ordini_per_data:
-                            ordini_per_data[data_str] = {"fatturato": 0.0, "ordini": 0}
-                            
-                        ordini_per_data[data_str]["fatturato"] += prezzo
-                        ordini_per_data[data_str]["ordini"] += 1
-                
-                storico = []
-                for data_key in sorted(ordini_per_data.keys()):
-                    storico.append({
-                        "data": data_key,
-                        "fatturato": round(ordini_per_data[data_key]["fatturato"], 2),
-                        "ordini": ordini_per_data[data_key]["ordini"]
-                    })
-                
-                print(f"✅ Dati Shopify estratti: {mrr_reale}€ su {attivi_reali} ordini.")
-                return {"mrr": mrr_reale, "attivi": attivi_reali, "storico": storico}
-                
-            else:
-                print(f"❌ Errore Shopify: {response.status_code}. Controllo token necessario.")
-                return {"mrr": 12500, "attivi": 84, "storico": storico_emergenza}
-                
+            try:
+                import tomllib
+            except ImportError:
+                import tomli as tomllib
+
+            with open(percorso_toml, "rb") as f:
+                secrets = tomllib.load(f)
+                return secrets.get("SHOPIFY_TOKEN", "")
         except Exception as e:
-            print(f"❌ Eccezione grave durante Shopify: {e}")
-            return {"mrr": 12500, "attivi": 84, "storico": storico_emergenza}
+            logger.error(f"Errore nella lettura di secrets.toml: {e}")
 
-    def fetch_marketing_data(self):
-        return {"roi_mktg": "393.87%", "cac": 41.67, "conversion_rate": "2.8%"}
+    return ""
 
-    def fetch_market_trends(self):
-        return {"trend": "Altamente Volatile", "benchmark": 36.33}
 
-    def genera_output_sistemi(self, df_finanza, dati_mktg, dati_trend):
-        print("💾 Salvataggio dei file JSON in corso...")
+class ShopifyOrchestrator:
+    """
+    Orchestratore per la gestione dell'integrazione con Shopify REST API.
+    Gestisce paginazione cursore, retry automatici e generazione JSON.
+    """
+
+    def __init__(
+        self, 
+        shop_name: Optional[str] = None, 
+        api_token: Optional[str] = None, 
+        api_version: str = "2024-04"
+    ):
+        self.dir_path = os.path.dirname(os.path.abspath(__file__))
+        self.shop_name = shop_name or os.getenv("SHOPIFY_SHOP_NAME", "orcmay")
+        self.api_token = api_token or _recupera_token_sicuro()
+        self.api_version = api_version
+        self.base_url = f"https://{self.shop_name}.myshopify.com/admin/api/{self.api_version}"
+
+        if MODALITA_TEST:
+            logger.info("🧪 Orchestratore avviato in MODALITÀ TEST (dati simulati).")
+        else:
+            logger.info("🚀 Orchestratore avviato in MODALITÀ PRODUZIONE.")
+            if not self.shop_name or not self.api_token:
+                logger.error("❌ Credenziali Shopify mancanti! Verifica SHOPIFY_SHOP_NAME e SHOPIFY_TOKEN.")
+
+    def _get_headers(self) -> Dict[str, str]:
+        return {
+            "X-Shopify-Access-Token": self.api_token,
+            "Content-Type": "application/json"
+        }
+
+    def fetch_all_orders(self, status: str = "any", limit: int = 250) -> List[Dict[str, Any]]:
+        """
+        Recupera TUTTI gli ordini gestendo in automatico la paginazione cursore 
+        (header 'Link') e i retry in caso di Rate Limit (HTTP 429).
+        """
+        if MODALITA_TEST:
+            return self._get_mock_orders()
+
+        orders: List[Dict[str, Any]] = []
+        url: Optional[str] = f"{self.base_url}/orders.json?status={status}&limit={limit}"
         
-        # ---------------------------------------------------------
-        # 1. FILE PER IL BOT TELEGRAM (Rigido, non farlo crashare)
-        # ---------------------------------------------------------
-        report_bot = {
+        logger.info("⏳ Inizio scaricamento ordini da Shopify...")
+
+        while url:
+            success = False
+            
+            # Ciclo di Retry più pulito (max 3 tentativi per pagina)
+            for attempt in range(1, 4):
+                try:
+                    response = requests.get(url, headers=self._get_headers(), timeout=10)
+                    
+                    if response.status_code == 429:
+                        logger.warning(f"⚠️ Rate limit Shopify raggiunto. Tentativo {attempt}/3. Attesa 2s...")
+                        time.sleep(2)
+                        continue
+
+                    response.raise_for_status()
+
+                    data = response.json()
+                    batch = data.get("orders", [])
+                    orders.extend(batch)
+                    
+                    logger.info(f"Scarico batch di {len(batch)} ordini. (Totale parziale: {len(orders)})")
+
+                    # Paginazione cursore
+                    link_header = response.headers.get("Link")
+                    url = self._extract_next_link(link_header)
+                    success = True
+                    break  # Esce dal loop di retry, passa alla pagina successiva
+
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"❌ Errore HTTP (Tentativo {attempt}/3): {e}")
+                    time.sleep(2)
+
+            # Se fallisce 3 volte di fila sulla stessa pagina, interrompe per evitare loop infiniti
+            if not success:
+                logger.error("❌ Impossibile recuperare la pagina dopo 3 tentativi. Interruzione download.")
+                break
+
+        logger.info(f"✅ Download completato! Totale ordini recuperati: {len(orders)}")
+        return orders
+
+    def _extract_next_link(self, link_header: Optional[str]) -> Optional[str]:
+        if not link_header:
+            return None
+
+        links = link_header.split(",")
+        for link in links:
+            if 'rel="next"' in link:
+                raw_url = link.split(";")[0].strip()
+                return raw_url.lstrip("<").rstrip(">")
+        return None
+
+    def get_summary_metrics(self) -> Dict[str, Any]:
+        """Elabora gli ordini e restituisce le metriche KPI di sintesi."""
+        orders = self.fetch_all_orders()
+        
+        total_revenue = sum(float(o.get("total_price") or 0) for o in orders)
+        order_count = len(orders)
+        avg_order_value = (total_revenue / order_count) if order_count > 0 else 0.0
+
+        return {
+            "total_orders": order_count,
+            "total_revenue": round(total_revenue, 2),
+            "average_order_value": round(avg_order_value, 2),
+            "currency": orders[0].get("currency", "EUR") if orders else "EUR"
+        }
+
+    def salva_json_sistemi(self, metrics: Dict[str, Any]):
+        """Genera i file JSON richiesti dalla Dashboard Streamlit e dal Bot Telegram."""
+        
+        # Output per Bot Telegram
+        bot_data = {
             "metriche_finanziarie": {
-                "mrr_netto_stimato": df_finanza["mrr"],
-                "ltv_stimato": 450,
-                "valore_totale_attivi": df_finanza["attivi"]
+                "mrr_netto_stimato": metrics["total_revenue"],
+                "ltv_stimato": 450.0, # TODO: Valore hardcodato. Sostituire con logica reale se necessario.
+                "valore_totale_attivi": metrics["total_orders"]
             },
             "performance_marketing_reale": {
-                "efficienza_pubblicitaria_roi": dati_mktg["roi_mktg"],
-                "costo_acquisizione_cliente_cac_euro": dati_mktg["cac"],
-                "tasso_conversione_sito": dati_mktg["conversion_rate"]
-            },
-            "analisi_contesto_esterno": {
-                "trend_mercato": dati_trend["trend"],
-                "benchmark_prezzo_concorrenza_euro": dati_trend["benchmark"]
+                # TODO: Sostituire i prossimi 3 valori integrando Meta/Google Ads API
+                "efficienza_pubblicitaria_roi": 393.87,
+                "costo_acquisizione_cliente_cac_euro": 41.67,
+                "tasso_conversione_sito": 2.8
             },
             "indicatori_ceo": {
+                "carrello_medio": metrics["average_order_value"],
+                "valuta": metrics["currency"],
                 "stato_salute_asset": "Ottimo"
             }
         }
         
-        with open(self.bot_report_path, "w", encoding="utf-8") as f:
-            json.dump(report_bot, f, indent=4, ensure_ascii=False)
-        print("✅ report_orchestra_holding.json (BOT) aggiornato!")
+        bot_path = os.path.join(self.dir_path, "report_orchestra_holding.json")
+        with open(bot_path, "w", encoding="utf-8") as f:
+            json.dump(bot_data, f, indent=4, ensure_ascii=False)
+        logger.info(f"✅ JSON Telegram salvato in: {bot_path}")
 
-        # ---------------------------------------------------------
-        # 2. FILE PER LA DASHBOARD (Con divisione BASE/PRO)
-        # ---------------------------------------------------------
-        storico_full = df_finanza.get("storico", [])
-        
-        # Simulazione competitor in attesa del tuo script di scraping reale
-        competitor_full = [
-            {"data": "2026-07-10", "tuo_prezzo": 39.99, "competitor_a": 41.20, "competitor_b": 38.90, "competitor_c": 35.00},
-            {"data": "2026-07-11", "tuo_prezzo": 39.99, "competitor_a": 40.90, "competitor_b": 39.50, "competitor_c": 34.50},
-            {"data": "2026-07-12", "tuo_prezzo": 39.99, "competitor_a": 40.90, "competitor_b": 37.90, "competitor_c": 34.00},
-            {"data": "2026-07-13", "tuo_prezzo": 39.99, "competitor_a": 42.00, "competitor_b": 37.90, "competitor_c": 36.00}
-        ]
-
-        report_dashboard = {
+        # Output per Dashboard Streamlit
+        dash_data = {
             "PIANO BASE": {
-                "kpi": {"fatturato": df_finanza["mrr"], "ordini": df_finanza["attivi"], "cac": dati_mktg["cac"], "roi": dati_mktg["roi_mktg"]},
-                "storico_vendite": storico_full[-2:] if len(storico_full) >= 2 else storico_full,
-                "storico_competitor": [
-                    {"data": x["data"], "tuo_prezzo": x["tuo_prezzo"], "competitor_a": x["competitor_a"]} for x in competitor_full[-2:]
-                ]
+                "kpi": {
+                    "fatturato": metrics["total_revenue"],
+                    "ordini": metrics["total_orders"],
+                    "cac": 41.67,
+                    "roi": 393.87
+                }
             },
             "PIANO PRO": {
-                "kpi": {"fatturato": df_finanza["mrr"], "ordini": df_finanza["attivi"], "cac": dati_mktg["cac"], "roi": dati_mktg["roi_mktg"]},
-                "storico_vendite": storico_full,
-                "storico_competitor": competitor_full
+                "kpi": {
+                    "fatturato": metrics["total_revenue"],
+                    "ordini": metrics["total_orders"],
+                    "cac": 41.67,
+                    "roi": 393.87
+                }
             }
         }
-        
-        with open(self.dashboard_data_path, "w", encoding="utf-8") as f:
-            json.dump(report_dashboard, f, indent=4, ensure_ascii=False)
-        print("✅ dati_dashboard.json (SITO) aggiornato!")
+
+        dash_path = os.path.join(self.dir_path, "dati_dashboard.json")
+        with open(dash_path, "w", encoding="utf-8") as f:
+            json.dump(dash_data, f, indent=4, ensure_ascii=False)
+        logger.info(f"✅ JSON Dashboard salvato in: {dash_path}")
+
+    def _get_mock_orders(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": 1001,
+                "name": "#1001",
+                "total_price": "149.90",
+                "currency": "EUR",
+                "financial_status": "paid",
+                "created_at": "2026-07-22T08:30:00+02:00"
+            },
+            {
+                "id": 1002,
+                "name": "#1002",
+                "total_price": "89.50",
+                "currency": "EUR",
+                "financial_status": "paid",
+                "created_at": "2026-07-22T09:15:00+02:00"
+            }
+        ]
+
 
 if __name__ == "__main__":
-    print("🚀 AVVIO ORCHESTRATORE...")
-    orchestratore = BusinessDataOrchestrator()
-    dati_finanza = orchestratore.fetch_financial_data()
-    dati_mktg = orchestratore.fetch_marketing_data()
-    dati_trend = orchestratore.fetch_market_trends()
-    orchestratore.genera_output_sistemi(dati_finanza, dati_mktg, dati_trend)
-    print("🎯 PROCESSO COMPLETATO CON SUCCESSO.")
+    orchestrator = ShopifyOrchestrator()
+    metrics = orchestrator.get_summary_metrics()
+    
+    print("\n--- RIEPILOGO DATI ELABORATI ---")
+    print(f"Ordini Totali : {metrics['total_orders']}")
+    print(f"Fatturato     : {metrics['total_revenue']} {metrics['currency']}")
+    print(f"Carrello Medio: {metrics['average_order_value']} {metrics['currency']}")
+    
+    # Salva i file per dashboard e bot
+    orchestrator.salva_json_sistemi(metrics)
