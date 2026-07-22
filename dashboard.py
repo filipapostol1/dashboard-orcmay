@@ -1,114 +1,128 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
 
-try:
-    from orchestrator import BusinessDataOrchestrator
-except ImportError:
-    st.error("⚠️ File orchestrator.py non trovato. Assicurati che sia nella stessa cartella.")
-    st.stop()
+# ---------------------------------------------------------------------------
+# Configurazione Pagina & CSS Personalizzato (Light Enterprise Theme)
+# ---------------------------------------------------------------------------
+st.set_page_config(
+    page_title="E-com Intel - Intelligence Platform",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.set_page_config(page_title="E-com Intelligence Dashboard", layout="wide")
+# Custom CSS per forzare lo stile Light Mode Enterprise senza emoji
+st.markdown("""
+    <style>
+    /* Sfondo principale chiaro */
+    .stApp {
+        background-color: #F8F9FA;
+        color: #1E293B;
+    }
+    
+    /* Stile della Topbar */
+    .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: #FFFFFF;
+        padding: 12px 24px;
+        border-bottom: 1px solid #E2E8F0;
+        margin-bottom: 24px;
+        border-radius: 8px;
+    }
+    
+    .topbar-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #0F172A;
+    }
 
-nome_file = os.path.join(os.getcwd(), "dati_dashboard.json")
+    .topbar-badge {
+        background-color: #DEF7EC;
+        color: #03543F;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 4px 12px;
+        border-radius: 12px;
+    }
 
-def aggiorna_tutto():
-    motore = BusinessDataOrchestrator()
-    dati_f = motore.fetch_financial_data()
-    dati_m = motore.fetch_marketing_data()
-    dati_t = motore.fetch_market_trends()
-    motore.genera_output_sistemi(dati_f, dati_m, dati_t)
+    /* Card delle metriche */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        padding: 16px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
 
-if not os.path.exists(nome_file):
-    with st.spinner("Creazione database iniziale..."):
-        aggiorna_tutto()
+    /* Nasconde elementi inutili di default */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_javascript=True)
 
-def carica_pacchetto_dashboard():
-    try:
-        with open(nome_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+# ---------------------------------------------------------------------------
+# TOPBAR SUPERIORE
+# ---------------------------------------------------------------------------
+col_title, col_status, col_cta = st.columns([3, 2, 2])
 
-# --- SIDEBAR E COMANDI ---
-st.sidebar.title("🚀 E-com Intel")
-status = st.sidebar.selectbox("Livello Account", ["PIANO BASE", "PIANO PRO"])
+with col_title:
+    st.markdown('<div class="topbar-title">E-COM INTEL &nbsp;|&nbsp; <span style="font-size: 14px; font-weight: normal; color: #64748B;">Workspace: Orcmay Store</span></div>', unsafe_allow_javascript=True)
 
-# QUESTO È IL BOTTONE MAGICO DA CLICCARE
-if st.sidebar.button("🔄 Sincronizza Dati Ora"):
-    with st.spinner("Scaricamento nuovi ordini e aggiornamento prezzi..."):
-        aggiorna_tutto()
-    st.sidebar.success("Dati aggiornati!")
-    st.rerun()
+with col_status:
+    st.markdown('<span class="topbar-badge">SYSTEM ONLINE &nbsp;•&nbsp; PIANO PRO</span>', unsafe_allow_javascript=True)
+
+with col_cta:
+    # Pulsante che rimanda al sito principale per i piani/abbonamenti
+    st.link_button("Gestisci Abbonamento ↗", "https://tuosito.com/pricing", type="primary", use_container_width=True)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# SIDEBAR LATERALE
+# ---------------------------------------------------------------------------
+st.sidebar.title("NAVIGAZIONE")
+menu_scelto = st.sidebar.radio(
+    "Seleziona Modulo:",
+    ["Panoramica Store", "Intelligence Competitor", "Analisi Ordini", "Impostazioni"],
+    index=1
+)
 
 st.sidebar.markdown("---")
-menu = st.sidebar.radio("Navigazione", ["📈 Panoramica Store", "🕵️ Spia Competitor"])
+st.sidebar.caption("Account: admin@orcmay.com")
+st.sidebar.caption("Versione API: v2024-04")
 
-dati_sito = carica_pacchetto_dashboard()
+# ---------------------------------------------------------------------------
+# CONTENUTO PRINCIPALE (INTELLIGENCE COMPETITOR)
+# ---------------------------------------------------------------------------
+if menu_scelto == "Intelligence Competitor":
+    st.subheader("Intelligence Competitor")
+    st.caption("Monitoraggio in tempo reale del posizionamento prezzi sui marketplace principali.")
 
-if not dati_sito:
-    st.error("⚠️ Impossibile leggere i dati. Clicca su 'Sincronizza Dati Ora'.")
-    st.stop()
+    # Dati di esempio
+    data = [
+        {"Data": "2026-07-10", "Il Tuo Prezzo (€)": 39.99, "Amazon (€)": 41.20, "Ebay (€)": 38.90, "Zalando (€)": 35.00},
+        {"Data": "2026-07-11", "Il Tuo Prezzo (€)": 39.99, "Amazon (€)": 40.90, "Ebay (€)": 39.50, "Zalando (€)": 34.50},
+        {"Data": "2026-07-12", "Il Tuo Prezzo (€)": 39.99, "Amazon (€)": 40.90, "Ebay (€)": 37.90, "Zalando (€)": 34.00},
+        {"Data": "2026-07-13", "Il Tuo Prezzo (€)": 39.99, "Amazon (€)": 42.00, "Ebay (€)": 37.90, "Zalando (€)": 36.00},
+    ]
+    df = pd.DataFrame(data)
 
-dati_piano = dati_sito.get(status, {})
-kpi = dati_piano.get("kpi", {})
+    # KPI Summary Cards
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Miglior Prezzo", "Zalando", "€ 36.00")
+    kpi2.metric("Prezzo Medio Amazon", "€ 41.25", "+1.2%")
+    kpi3.metric("Differenziale Tuo Prezzo", "-€ 2.01", "vs Amazon")
+    kpi4.metric("Competitor Tracciati", "3 Piattaforme", "Attivi")
 
-# --- SEZIONE 1: PANORAMICA STORE ---
-if menu == "📈 Panoramica Store":
-    st.title(f"📈 Panoramica dello Store ({status})")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Fatturato", f"{kpi.get('fatturato', 0)} €")
-    col2.metric("Ordini", f"{kpi.get('ordini', 0)}")
-    col3.metric("CAC", f"{kpi.get('cac', 0)} €")
-    col4.metric("ROI", f"{kpi.get('roi', '0%')}")
-    
-    st.markdown("---")
-    st.subheader("📊 Andamento Fatturato")
-    
-    storico_v = dati_piano.get("storico_vendite", [])
-    if storico_v:
-        df_v = pd.DataFrame(storico_v).set_index("data")
-        # Rinomino le colonne per renderle professionali
-        df_v = df_v.rename(columns={"fatturato": "Fatturato (€)", "ordini": "N° Ordini"})
-        
-        if status == "PIANO BASE":
-            st.warning("🔒 Piano BASE: Nessun grafico di andamento. Hai accesso solo ai crudi numeri delle ultime 48 ore.")
-            # Nel base mostra SOLO LA TABELLA (Niente grafici)
-            st.dataframe(df_v, use_container_width=True)
-        else:
-            st.success("🔓 Piano PRO: Grafico andamento sbloccato.")
-            # Nel PRO mostra IL GRAFICO e poi i dati
-            st.line_chart(df_v["Fatturato (€)"])
-    else:
-        st.info("Nessun dato storico elaborato.")
+    st.write("")
 
-# --- SEZIONE 2: SPIA COMPETITOR ---
-elif menu == "🕵️ Spia Competitor":
-    st.title(f"🕵️ Intelligence Competitor ({status})")
-    
-    storico_c = dati_piano.get("storico_competitor", [])
-    if storico_c:
-        df_c = pd.DataFrame(storico_c).set_index("data")
-        
-        # Sostituiamo "competitor_a" con nomi veri per fare un test visivo che spacca
-        df_c = df_c.rename(columns={
-            "tuo_prezzo": "Il Tuo Prezzo (€)", 
-            "competitor_a": "Amazon (€)", 
-            "competitor_b": "Ebay (€)", 
-            "competitor_c": "Zalando (€)"
-        })
-        
-        if status == "PIANO BASE":
-            st.warning("🔒 Piano BASE: Puoi tracciare un solo concorrente (Amazon) e senza grafici di tendenza storici.")
-            # Nel base mostra SOLO LA TABELLA striminzita
-            st.dataframe(df_c, use_container_width=True)
-            st.markdown("👉 *Passa al **Piano PRO** per sbloccare tutti gli altri store e i grafici predittivi sui prezzi.*")
-        else:
-            st.success("🔓 Piano PRO: Tracciamento globale attivo. Tutti i competitor monitorati in tempo reale.")
-            # Nel PRO mostra il GRAFFICO INTERATTIVO con tutte le linee incrociate
-            st.line_chart(df_c)
-            st.dataframe(df_c, use_container_width=True)
-    else:
-        st.info("Nessun dato competitor elaborato. Prova a cliccare su 'Sincronizza Dati Ora'.")
+    # Grafico Linee
+    st.markdown("##### Storico Variazione Prezzi")
+    df_chart = df.set_index("Data")
+    st.line_chart(df_chart, height=320)
+
+    # Tabella Dati
+    st.markdown("##### Dati Dettagliati")
+    st.dataframe(df, use_container_width=True, hide_index=True)
